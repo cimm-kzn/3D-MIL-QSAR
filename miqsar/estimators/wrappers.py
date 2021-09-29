@@ -130,7 +130,7 @@ class MLPNetRegressor(MLP, BaseRegressor):
     def __init__(self, ndim=None, init_cuda=False):
         super().__init__(ndim=ndim, init_cuda=init_cuda)
 
-class MIWrapper:
+class BagWrapper:
 
     def __init__(self, estimator, pool='mean'):
         self.estimator = estimator
@@ -164,7 +164,7 @@ class MIWrapper:
         return '{}{}'.format(self.__class__.__name__, self.pool.capitalize())
 
 
-class miWrapper:
+class InstanceWrapper:
 
     def __init__(self, estimator, pool='mean'):
         self.estimator = estimator
@@ -197,21 +197,21 @@ class miWrapper:
         return '{}{}'.format(self.__class__.__name__, self.pool.capitalize())
 
 
-class MIWrapperMLPRegressor(MIWrapper, BaseRegressor):
+class BagWrapperMLPRegressor(BagWrapper, BaseRegressor):
 
     def __init__(self, ndim=None, pool='mean', init_cuda=False):
         estimator = MLPNetRegressor(ndim=ndim, init_cuda=init_cuda)
         super().__init__(estimator=estimator, pool=pool)
 
 
-class MIWrapperMLPClassifier(MIWrapper, BaseClassifier):
+class BagWrapperMLPClassifier(BagWrapper, BaseClassifier):
 
     def __init__(self, ndim=None, pool='mean', init_cuda=False):
         estimator = MLPNetClassifier(ndim=ndim, init_cuda=init_cuda)
         super().__init__(estimator=estimator, pool=pool)
 
 
-class miWrapperMLPRegressor(miWrapper, BaseRegressor):
+class InstanceWrapperMLPRegressor(InstanceWrapper, BaseRegressor):
 
     def __init__(self, ndim=None, pool='mean', init_cuda=False):
 
@@ -219,7 +219,7 @@ class miWrapperMLPRegressor(miWrapper, BaseRegressor):
         super().__init__(estimator=estimator, pool=pool)
 
 
-class miWrapperMLPClassifier(miWrapper, BaseClassifier):
+class InstanceWrapperMLPClassifier(InstanceWrapper, BaseClassifier):
 
     def __init__(self, ndim=None, pool='mean', init_cuda=False):
         estimator = MLPNetClassifier(ndim=ndim, init_cuda=init_cuda)

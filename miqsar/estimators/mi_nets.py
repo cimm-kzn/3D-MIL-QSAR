@@ -34,7 +34,7 @@ class Pooling(nn.Module):
         return 'Pooling(out_dim=1)'
 
 
-class MINet(BaseNet):
+class BagNet(BaseNet):
     def __init__(self, ndim=None, pool='mean', init_cuda=False):
         super().__init__(init_cuda=init_cuda)
         self.main_net = MainNet(ndim)
@@ -54,7 +54,7 @@ class MINet(BaseNet):
         return None, out
 
 
-class miNet(BaseNet):
+class InstanceNet(BaseNet):
 
     def __init__(self, ndim=None, pool='mean', init_cuda=False):
         super().__init__(init_cuda=init_cuda)
@@ -74,22 +74,22 @@ class miNet(BaseNet):
         return w, out
 
 
-class MINetClassifier(MINet, BaseClassifier):
+class BagNetClassifier(BagNet, BaseClassifier):
 
     def __init__(self, ndim=None, pool='mean', init_cuda=False):
         super().__init__(ndim=ndim, pool=pool, init_cuda=init_cuda)
 
 
-class MINetRegressor(MINet, BaseRegressor):
+class BagNetRegressor(BagNet, BaseRegressor):
     def __init__(self, ndim=None, pool='mean', init_cuda=False):
         super().__init__(ndim=ndim, pool=pool, init_cuda=init_cuda)
 
 
-class miNetClassifier(miNet, BaseClassifier):
+class InstanceNetClassifier(InstanceNet, BaseClassifier):
     def __init__(self, ndim=None, pool='mean', init_cuda=False):
         super().__init__(ndim=ndim, pool=pool, init_cuda=init_cuda)
 
 
-class miNetRegressor(miNet, BaseRegressor):
+class InstanceNetRegressor(InstanceNet, BaseRegressor):
     def __init__(self, ndim=None, pool='mean', init_cuda=False):
         super().__init__(ndim=ndim, pool=pool, init_cuda=init_cuda)
