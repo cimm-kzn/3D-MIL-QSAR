@@ -90,7 +90,7 @@ class BaseNet(nn.Module):
         out = out.view(-1, 1)
         return None, out
 
-    def fit(self, x, y, n_epoch=100, batch_size=128, lr=0.001, weight_decay=0, instance_dropout=0, verbose=False):
+    def fit(self, x, y, n_epoch=100, batch_size=128, lr=0.001, weight_decay=0, instance_dropout=0.95, verbose=False):
         self.instance_dropout = instance_dropout
 
         x_train, x_val, y_train, y_val, m_train, m_val = self.train_val_split(x, y)

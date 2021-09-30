@@ -50,8 +50,7 @@ class AttentionNet(BaseNet):
         x = self.main_net(x)
         x_det = torch.transpose(m * self.detector(x), 2, 1)
 
-        w = Softmax(dim=2)(x_det)
-        w = WeightsDropout(p=self.instance_dropout)(w)
+        w = nn.functional.gumbel_softmax(x_det, tau=self.instance_dropout, dim=2)
 
         x = torch.bmm(w, x)
         out = self.estimator(x)
