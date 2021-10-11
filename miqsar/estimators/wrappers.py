@@ -7,7 +7,7 @@ from torch.nn import Sigmoid, Sequential, Linear, ReLU
 from torch.utils.data import Dataset
 from sklearn.model_selection import train_test_split
 from .mi_nets import MainNet
-
+from .base_nets import  BaseClassifier, BaseRegressor
 
 class MBSplitter(Dataset):
     def __init__(self, x, y):
@@ -20,19 +20,6 @@ class MBSplitter(Dataset):
 
     def __len__(self):
         return len(self.y)
-
-
-class BaseClassifier:
-    def loss(self, y_pred, y_true):
-        total_loss = nn.BCELoss(reduction='mean')(y_pred, y_true.reshape(-1, 1))
-        return total_loss
-
-
-class BaseRegressor:
-    def loss(self, y_pred, y_true):
-        total_loss = nn.MSELoss(reduction='mean')(y_pred, y_true.reshape(-1, 1))
-        return total_loss
-
 
 class MLP(nn.Module):
     def __init__(self, ndim=None, init_cuda=False):
