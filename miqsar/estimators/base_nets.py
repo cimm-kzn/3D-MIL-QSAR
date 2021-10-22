@@ -1,30 +1,81 @@
 import torch
 import numpy as np
-from torch import nn
+from torch import nn, Tensor
 import torch_optimizer as optim
 from torch.utils.data import DataLoader
 from torch.nn import Sigmoid
 from sklearn.model_selection import train_test_split
 from .utils import MBSplitter
+from typing import Sequence, Tuple, Optional, List, Union
 
 class BaseClassifier:
-    def loss(self, y_pred, y_true):
+    """
+    Abstract base class for classifiers.
+    This is intended only for convenience of subclass implementations
+    and should not be invoked directly.
+    """
+    def loss(self, y_pred: Tensor, y_true: Tensor) -> Tensor:
+        """
+        Parameters
+        ----------
+        y_pred: Tensor
+        predicted  values (activity)
+        y_true: Tensor
+        true target values (activity)
+        Returns
+        ----------
+        Tensor
+        Loss, currently, binary cross entropy
+        """
         total_loss = nn.BCELoss(reduction='mean')(y_pred, y_true.reshape(-1, 1))
         return total_loss
 
 
 class BaseRegressor:
-    def loss(self, y_pred, y_true):
+    """
+    Abstract base class for regressors.
+    This is intended only for convenience of subclass implementations
+    and should not be invoked directly.
+    """
+    def loss(self, y_pred: Tensor, y_true: Tensor) -> Tensor:
+        """
+        Computes loss (currently, it's only mean-squared error)
+        Parameters
+        ----------
+        y_pred: Tensor
+        predicted  values (activity)
+        y_true: Tensor
+        true target values (activity)
+
+        Returns
+        ----------
+        Tensor
+        Loss
+        """ 
         total_loss = nn.MSELoss(reduction='mean')(y_pred, y_true.reshape(-1, 1))
         return total_loss
 
 
 class BaseNet(nn.Module):
-    def __init__(self, net=None, init_cuda=False):
+    """
+    Abstract base class for all MIL models.
+    This is intended only for convenience of subclass implementations
+    and should not be invoked directly.
+    """
+    def __init__(self, net: Optional[nn.Module] = None, init_cuda: bool =False):
+        """
+        Parameters
+        ----------
+        net: nn.Module
+        PyTorch model object.
+        init_cuda: bool
+        Should cuda GPUs be used or not?
+
+        """
         super().__init__()
         self.net = net
         self.init_cuda = init_cuda
-
+      
         if self.net and self.init_cuda:
             self.net.cuda()
 
@@ -32,7 +83,34 @@ class BaseNet(nn.Module):
     def name(self):
         return self.__class__.__name__
 
-    def add_padding(self, x):
+    def add_padding(self, x: Union[Sequence, np.array]) -> Tuple[np.array,np.array]:
+        """
+        Adds zero-padding to each  bag in x (sequence of bags) to bring x to tensor of shape Nmol*max(Nconf)*Ndescr,
+        where: Nconf - number of conformers for a given molecule,
+        Ndescr - length of descriptor string, Nmol - number of molecules  in dataset
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from miqsar.estimators.base_nets import BaseNet
+        >>> net = BaseNet()
+        >>> x_train = [[[1, 1],[1,1]],[[1, 1]]] # 2 molecules, one with 2 conformers and the other with only 1 conformer
+        >>> _, m = net.add_padding(x_train)
+        >>> m
+        array([[[1.],
+                [1.]],
+        <BLANKLINE>
+               [[1.],
+                [0.]]])
+
+        Parameters
+         -----------
+         x:  Union[Sequence, np.array]
+         Sequence of bags (sets of conformers, one set for each molecule)
+         Returns
+         -----------
+         Tuple of 2 tensors: new padded  tensor x and   mask tensor m (shape of m: Nmol*max(Nconf)*1): each row populated with
+          either 1 where conformer exists, or 0 where conformer didnt exist and zeros were added.
+            """
         bag_size = max(len(i) for i in x)
         mask = np.ones((len(x), bag_size, 1))
 
@@ -47,7 +125,27 @@ class BaseNet(nn.Module):
         out_bags = np.asarray(out)
         return out_bags, mask
 
-    def train_val_split(self, x, y, val_size=0.2, random_state=42):
+    def train_val_split(self, x: Union[Sequence, np.array], y: Union[Sequence, np.array],
+                        val_size: float = 0.2, random_state: int =42) -> Tuple[Tensor, Tensor, Tensor,
+                                                                               Tensor, Tensor, Tensor]:
+        """
+        Wrapper around sklearn train_val_split for compatibility with torch.Tensors
+
+         Parameters
+         -----------
+         x: Union[Sequence, np.array]
+         Sequence of bags (=sets of conformers, one set for each molecule)
+         y: Union[Sequence, np.array]
+         Sequence of labels (one for each molecule)
+         val_size: float, default is .2
+         Validation set portion
+         random_state: int
+
+         Returns
+         -----------
+         Tuple of 6 torch.tensors: x,y, and padding mask m (will be useful later to nullify padded values) -
+         for both train and val splits
+            """
         x, y = np.asarray(x), np.asarray(y)
         x, m = self.add_padding(x)
 
@@ -58,12 +156,46 @@ class BaseNet(nn.Module):
 
         return x_train, x_val, y_train, y_val, m_train, m_val
 
-    def get_mini_batches(self, x, y, m, batch_size=16):
+    def get_mini_batches(self, x: Tensor, y: Tensor, m: Tensor, batch_size: int = 16) -> DataLoader:
+        """
+        Batch generator
+
+        Examples
+        -----------
+
+        Parameters
+        -----------
+         x: torch.Tensor
+         Descriptors tensor
+        y: torch.Tensor
+        Labels (target values) tensor
+        m: torch.Tensor
+        Mask tensor m (shape of m: Nmol*max(Nconf)*1)
+        val_size: float
+        Validation set portion
+        random_state: int
+
+        Returns
+        -----------
+        Generator of 6 torch.tensors: x,y, and padding mask m - for both train and val splits
+         """
         data = MBSplitter(x, y, m)
         mb = DataLoader(data, batch_size=batch_size, shuffle=True)
         return mb
 
-    def array_to_tensor(self, x, y, m):
+    def array_to_tensor(self, x: np.array, y: np.array, m: np.array) -> Tuple[Tensor,Tensor,Tensor]:
+        """
+        Util to coerce np to torch.Tensor
+        Parameters
+        ----------
+        x: np.array
+        y: np.array
+        m: np.array
+
+        Returns
+        ---------
+        Tuple of x,y,m coerced to tensors
+        """
 
         x = torch.from_numpy(x.astype('float32'))
         y = torch.from_numpy(y.astype('float32'))
@@ -74,7 +206,35 @@ class BaseNet(nn.Module):
             x, y, m = x.cuda(), y.cuda(), m.cuda()
         return x, y, m
 
-    def loss_batch(self, x_mb, y_mb, m_mb, optimizer=None):
+    def loss_batch(self, x_mb: Tensor, y_mb: Tensor, m_mb: Tensor, optimizer: Optional[torch.optim.Optimizer]=None) -> float:
+        """
+        Compute loss on mini batch. NOTE: This method works only with  subclasses which initialize main_net and loss
+        Parameteres
+        -----------
+        x_mb: torch.Tensor
+        y_mb: torch.Tensor
+        m_mb: torch.Tensor
+        optimizer: Optional[torch.optim.Optimizer]
+        instance of optimizer
+        Returns
+        -----------
+        Loss per batch
+
+        Examples
+        -----------
+        >>> from torch import randn, manual_seed, from_numpy
+        >>> from torch_optimizer import Yogi
+        >>> from miqsar.estimators.mi_nets import BagNetRegressor
+        >>> s = manual_seed(0) # seed for reproducible net weights (assign seed to a variable to supress std output)
+        >>> x_train, y_train= randn((3, 3, 3)), randn(3)
+        >>> bag_net = BagNetRegressor(ndim=(x_train[0].shape[-1], 4, 6, 4), init_cuda=False)
+        >>> _, m = bag_net.add_padding(x_train)
+        >>> m = from_numpy(m).float()
+        >>> opt = Yogi(bag_net.parameters())  # instantiate optimizer
+        >>> loss_mb = bag_net.loss_batch(x_train, y_train,m, opt)
+        >>> round(loss_mb,2)
+        2.8
+        """
         w_out, y_out = self.forward(x_mb, m_mb)
         total_loss = self.loss(y_out, y_mb)
         if optimizer is not None:
@@ -84,13 +244,49 @@ class BaseNet(nn.Module):
         return total_loss.item()
 
     def forward(self, x, m):
+        """
+         NOTE: his method works only with  subclasses, which initialize main_net
+        """
         x = m * self.main_net(x)
         if isinstance(self, BaseClassifier):
             out = Sigmoid()(x)
         out = out.view(-1, 1)
         return None, out
 
-    def fit(self, x, y, n_epoch=100, batch_size=128, lr=0.001, weight_decay=0, instance_dropout=0.95, verbose=False):
+    def fit(self, x: Union[Sequence[Union[Sequence, np.array]], np.array], y: Union[Sequence, np.array],
+            n_epoch: int = 100, batch_size: int = 128, lr: float = 0.001,
+            weight_decay: float = 0, instance_dropout: float = 0.95, verbose: bool = False)-> 'BaseNet':
+        """
+        Main fit method. fit data to model.  NOTE: his method works only with  subclasses
+        Parameters
+        ----------
+        x: array-like
+        If array: array of bags of shape Nmol*Nconf*Ndescr,
+        where:  Nmol - number of molecules  in dataset, Nconf - number of conformers for a given molecule,
+        Ndescr - length of descriptor string  for a conformer.
+        If sequence:  sequence with bags, size of a bag  (Nconf) can vary. Each entry of a bag is a descriptor
+        vector for that conformer (that is not allowed to vary in length, it will be padded).
+        y: array-like
+        Labels for bags, array of shape Nmol (or sequence of length Nmol)
+        n_epoch: int, default is 100
+        Number of training epochs
+        batch_size: int, default is 128
+        Size of minibatch. TODO: implement check for minimal size
+        lr: float, default 0.001
+        Learning rate fo optimizer
+        weight_decay: float, default is apply no L2 penalty (0)
+        Value by which to multiply L2 penalty for optimizer
+        instance_dropout: float, default is 0.95
+        Randomly zeroes some of the instances with probability 1-instance_dropout (during training)
+        using samples from a Bernoulli distribution.
+        verbose: bool, default False
+
+        Returns
+        --------
+        Network with trained weights        
+
+        """
+
         self.instance_dropout = instance_dropout
 
         x_train, x_val, y_train, y_val, m_train, m_val = self.train_val_split(x, y)
@@ -116,7 +312,49 @@ class BaseNet(nn.Module):
         self.load_state_dict(best_parameters, strict=True)
         return self
 
-    def predict(self, x):
+    def predict(self, x: Union[Sequence[Union[Sequence, np.array]], np.array]) -> np.array:
+        """
+        Main predict method. Predict unseen data by trained model.  NOTE: his method works only with  subclasses,
+        because we need first to train a model
+        Parameters
+        ----------
+        x: array-like
+        If array: array of bags of shape Nmol*Nconf*Ndescr,
+        where:  Nmol - number of molecules  in dataset, Nconf - number of conformers for a given molecule,
+        Ndescr - length of descriptor string  for a conformer.
+        If sequence:  sequence with bags, size of a bag  (Nconf) can vary. Each entry of a bag is a descriptor
+        vector for that conformer (that is not allowed to vary in length, it will be padded).
+
+        Returns
+        --------
+        Network's predicted values, array of shape Nmol
+
+        Examples
+        ----------
+        >>> from torch import ones, manual_seed
+        >>> from miqsar.estimators.mi_nets import BagNetRegressor
+        >>> s = manual_seed(0) # seed for reproducible net weights (assign seed to a variable to supress std output)
+        >>> x_train, y_train = ones((3, 3, 3)), ones(3) # toy data initialize with all 1
+        >>> bag_net = BagNetRegressor(ndim=(x_train[0].shape[-1], 4, 6, 4), init_cuda=False)
+        >>> bag_net.fit(x_train, y_train, n_epoch=2, batch_size=1)
+        BagNetRegressor(
+          (main_net): Sequential(
+            (0): Linear(in_features=3, out_features=4, bias=True)
+            (1): ReLU()
+            (2): Linear(in_features=4, out_features=6, bias=True)
+            (3): ReLU()
+            (4): Linear(in_features=6, out_features=4, bias=True)
+            (5): ReLU()
+          )
+          (pooling): Pooling(Pooling(out_dim=1))
+          (estimator): Linear(in_features=4, out_features=1, bias=True)
+        )
+        >>> bag_net.predict(x_train)   # returns same predicitons for all datapoints (same input -> same output)
+        array([[-0.07465197],
+               [-0.07465197],
+               [-0.07465197]], dtype=float32)
+
+        """
         x, m = self.add_padding(np.asarray(x))
         x = torch.from_numpy(x.astype('float32'))
         m = torch.from_numpy(m.astype('float32'))
@@ -127,7 +365,25 @@ class BaseNet(nn.Module):
             w, y_pred = self.forward(x, m)
         return np.asarray(y_pred.cpu())
 
-    def get_instance_weights(self, x):
+    def get_instance_weights(self, x: Union[Sequence[Union[Sequence, np.array]], np.array]) -> List[np.array]:
+        """
+        NOTE: his method works only with  multiinstance architectures whose last layer is linear
+        Parameters
+        ----------
+        x: array-like
+        If array: array of bags of shape Nmol*Nconf*Ndescr,
+        where:  Nmol - number of molecules  in dataset, Nconf - number of conformers for a given molecule,
+        Ndescr - length of descriptor string  for a conformer.
+        If sequence:  sequence with bags, size of a bag  (Nconf) can vary. Each entry of a bag is a descriptor
+        vector for that conformer (that is not allowed to vary in length, it will be padded).
+
+        Returns
+        --------
+        Weights from the last linear layer (if present in given network architecture)
+        Returned list contains weights of conformers for each bag (len(list) = number of molecules, len(sublist/array) =
+         number of conformers)
+
+        """
         x, m = self.add_padding(np.asarray(x))
         x = torch.from_numpy(x.astype('float32'))
         m = torch.from_numpy(m.astype('float32'))
