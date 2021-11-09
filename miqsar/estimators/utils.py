@@ -10,14 +10,17 @@ def set_seed(seed):
 
 
 class MBSplitter(Dataset):
-    def __init__(self, x, y, m):
+    def __init__(self, x, y, m=None):
         super(MBSplitter, self).__init__()
         self.x = x
         self.y = y
         self.m = m
 
     def __getitem__(self, i):
-        return self.x[i], self.y[i], self.m[i]
+        if self.m is not None:
+            return self.x[i], self.y[i], self.m[i]
+        else:
+            return self.x[i], self.y[i]
 
     def __len__(self):
         return len(self.y)

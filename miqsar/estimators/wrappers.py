@@ -8,18 +8,8 @@ from torch.utils.data import Dataset
 from sklearn.model_selection import train_test_split
 from .mi_nets import MainNet
 from .base_nets import  BaseClassifier, BaseRegressor
+from .utils import MBSplitter
 
-class MBSplitter(Dataset):
-    def __init__(self, x, y):
-        super(MBSplitter, self).__init__()
-        self.x = x
-        self.y = y
-
-    def __getitem__(self, i):
-        return self.x[i], self.y[i]
-
-    def __len__(self):
-        return len(self.y)
 
 class MLP(nn.Module):
     def __init__(self, ndim=None, init_cuda=False):
