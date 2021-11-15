@@ -6,9 +6,9 @@ from torch.utils.data import DataLoader
 from torch.nn import Sigmoid, Sequential, Linear, ReLU
 from torch.utils.data import Dataset
 from sklearn.model_selection import train_test_split
-from mi_nets import MainNet
-from base_nets import  BaseClassifier, BaseRegressor
-from utils import  get_mini_batches, train_val_split
+from .mi_nets import MainNet
+from .base_nets import  BaseClassifier, BaseRegressor
+from .utils import  get_mini_batches, train_val_split
 from typing import Sequence, Tuple, Union
 
 

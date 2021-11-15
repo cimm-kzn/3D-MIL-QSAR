@@ -5,7 +5,7 @@ import torch_optimizer as optim
 from torch.utils.data import DataLoader
 from torch.nn import Sigmoid
 from sklearn.model_selection import train_test_split
-from utils import get_mini_batches, train_val_split
+from .utils import get_mini_batches, train_val_split
 from typing import Sequence, Tuple, Optional, List, Union
 
 class BaseClassifier:
