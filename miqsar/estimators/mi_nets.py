@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import Sequential, Linear, ReLU, Softmax, Sigmoid
-from .base_nets import BaseNet, BaseRegressor, BaseClassifier
+from base_nets import BaseNet, BaseRegressor, BaseClassifier
 from typing import Sequence, Tuple
 
 class MainNet:
@@ -14,6 +14,7 @@ class MainNet:
     Nmols - number of molecules, Nconf -number of conformers and Nhlast - dimensionality of last hidden layer.
 
     This learnt representation (as opposed to original one) is assumed to help better predict property studied.
+    THe same net can be used for single instance learning, in which case it essentially is MLP.
     """
 
     def __new__(cls, ndim: Sequence):
