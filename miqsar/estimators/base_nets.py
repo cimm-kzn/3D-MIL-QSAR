@@ -5,7 +5,7 @@ import torch_optimizer as optim
 from torch.utils.data import DataLoader
 from torch.nn import Sigmoid
 from sklearn.model_selection import train_test_split
-from .utils import MBSplitter
+from .utils import get_mini_batches, train_val_split
 from typing import Sequence, Tuple, Optional, List, Union
 
 class BaseClassifier:
@@ -125,87 +125,6 @@ class BaseNet(nn.Module):
         out_bags = np.asarray(out)
         return out_bags, mask
 
-    def train_val_split(self, x: Union[Sequence, np.array], y: Union[Sequence, np.array],
-                        val_size: float = 0.2, random_state: int =42) -> Tuple[Tensor, Tensor, Tensor,
-                                                                               Tensor, Tensor, Tensor]:
-        """
-        Wrapper around sklearn train_val_split for compatibility with torch.Tensors
-
-         Parameters
-         -----------
-         x: Union[Sequence, np.array]
-         Sequence of bags (=sets of conformers, one set for each molecule)
-         y: Union[Sequence, np.array]
-         Sequence of labels (one for each molecule)
-         val_size: float, default is .2
-         Validation set portion
-         random_state: int
-
-         Returns
-         -----------
-         Tuple of 6 torch.tensors: x,y, and padding mask m (will be useful later to nullify padded values) -
-         for both train and val splits
-            """
-        x, y = np.asarray(x), np.asarray(y)
-        x, m = self.add_padding(x)
-
-        x_train, x_val, y_train, y_val, m_train, m_val = train_test_split(x, y, m, test_size=val_size,
-                                                                          random_state=random_state)
-        x_train, y_train, m_train = self.array_to_tensor(x_train, y_train, m_train)
-        x_val, y_val, m_val = self.array_to_tensor(x_val, y_val, m_val)
-
-        return x_train, x_val, y_train, y_val, m_train, m_val
-
-    def get_mini_batches(self, x: Tensor, y: Tensor, m: Tensor, batch_size: int = 16) -> DataLoader:
-        """
-        Batch generator
-
-        Examples
-        -----------
-
-        Parameters
-        -----------
-         x: torch.Tensor
-         Descriptors tensor
-        y: torch.Tensor
-        Labels (target values) tensor
-        m: torch.Tensor
-        Mask tensor m (shape of m: Nmol*max(Nconf)*1)
-        val_size: float
-        Validation set portion
-        random_state: int
-
-        Returns
-        -----------
-        Generator of 6 torch.tensors: x,y, and padding mask m - for both train and val splits
-         """
-        data = MBSplitter(x, y, m)
-        mb = DataLoader(data, batch_size=batch_size, shuffle=True)
-        return mb
-
-    def array_to_tensor(self, x: np.array, y: np.array, m: np.array) -> Tuple[Tensor,Tensor,Tensor]:
-        """
-        Util to coerce np to torch.Tensor
-        Parameters
-        ----------
-        x: np.array
-        y: np.array
-        m: np.array
-
-        Returns
-        ---------
-        Tuple of x,y,m coerced to tensors
-        """
-
-        x = torch.from_numpy(x.astype('float32'))
-        y = torch.from_numpy(y.astype('float32'))
-        m = torch.from_numpy(m.astype('float32'))
-        if y.ndim == 1:
-            y = y.reshape(-1, 1)
-        if self.init_cuda:
-            x, y, m = x.cuda(), y.cuda(), m.cuda()
-        return x, y, m
-
     def loss_batch(self, x_mb: Tensor, y_mb: Tensor, m_mb: Tensor, optimizer: Optional[torch.optim.Optimizer]=None) -> float:
         """
         Compute loss on mini batch. NOTE: This method works only with  subclasses which initialize main_net and loss
@@ -245,7 +164,7 @@ class BaseNet(nn.Module):
 
     def forward(self, x, m):
         """
-         NOTE: his method works only with  subclasses, which initialize main_net
+         NOTE: this method works only with  subclasses, which initialize main_net
         """
         x = m * self.main_net(x)
         if isinstance(self, BaseClassifier):
@@ -264,8 +183,9 @@ class BaseNet(nn.Module):
         If array: array of bags of shape Nmol*Nconf*Ndescr,
         where:  Nmol - number of molecules  in dataset, Nconf - number of conformers for a given molecule,
         Ndescr - length of descriptor string  for a conformer.
-        If sequence:  sequence with bags, size of a bag  (Nconf) can vary. Each entry of a bag is a descriptor
-        vector for that conformer (that is not allowed to vary in length, it will be padded).
+        If sequence:  sequence with bags, size of a bag  (Nconf) can vary (if varies, will be padded).
+         Each entry of a bag is a descriptor
+        vector for that conformer (that is not allowed to vary in length).
         y: array-like
         Labels for bags, array of shape Nmol (or sequence of length Nmol)
         n_epoch: int, default is 100
@@ -288,13 +208,20 @@ class BaseNet(nn.Module):
         """
 
         self.instance_dropout = instance_dropout
-
-        x_train, x_val, y_train, y_val, m_train, m_val = self.train_val_split(x, y)
+        x, m = self.add_padding(x)
+        x_train, x_val, y_train, y_val, m_train, m_val = train_val_split(x, y, m) 
+        if y.ndim == 1: # convert 1d array into 2d ("column-vector")
+            y_train = y_train.reshape(-1, 1)
+        if y_val.ndim == 1:  # convert 1d array into 2d ("column-vector")
+            y_val = y_val.reshape(-1, 1)
+        if self.init_cuda:
+            x_train, x_val, y_train, y_val, m_train, m_val  = x_train.cuda(), x_val.cuda(), y_train.cuda(), y_val.cuda(), \
+                                                              m_train.cuda(), m_val.cuda()
         optimizer = optim.Yogi(self.parameters(), lr=lr, weight_decay=weight_decay)
 
         val_loss = []
         for epoch in range(n_epoch):
-            mb = self.get_mini_batches(x_train, y_train, m_train, batch_size=batch_size)
+            mb = get_mini_batches(x_train, y_train, m_train, batch_size=batch_size)
             self.train()
             for x_mb, y_mb, m_mb in mb:
                 loss = self.loss_batch(x_mb, y_mb, m_mb, optimizer=optimizer)
@@ -319,11 +246,12 @@ class BaseNet(nn.Module):
         Parameters
         ----------
         x: array-like
+        Conformers of molecules represented by descriptors, i.e. 3D array-like struture
         If array: array of bags of shape Nmol*Nconf*Ndescr,
         where:  Nmol - number of molecules  in dataset, Nconf - number of conformers for a given molecule,
         Ndescr - length of descriptor string  for a conformer.
-        If sequence:  sequence with bags, size of a bag  (Nconf) can vary. Each entry of a bag is a descriptor
-        vector for that conformer (that is not allowed to vary in length, it will be padded).
+        If sequence:  sequence with bags, size of a bag  (Nconf) can vary (if varies, will be padded). Each entry of a bag is a descriptor
+        vector for that conformer (that is not allowed to vary in length).
 
         Returns
         --------

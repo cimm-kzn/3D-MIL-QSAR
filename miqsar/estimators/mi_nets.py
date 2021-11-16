@@ -14,6 +14,7 @@ class MainNet:
     Nmols - number of molecules, Nconf -number of conformers and Nhlast - dimensionality of last hidden layer.
 
     This learnt representation (as opposed to original one) is assumed to help better predict property studied.
+    THe same net can be used for single instance learning, in which case it essentially is MLP.
     """
 
     def __new__(cls, ndim: Sequence):
@@ -111,7 +112,7 @@ class BagNet(BaseNet):
         Parameters
         ----------
         ndim: Sequence
-         Each entry of sequence specifies the number of nodes in each layer and length
+        Hyperparameter for MainNet: each entry of sequence specifies the number of nodes in each layer and length
         of the sequence specifies number of layers
         pool: str, default is None
         Pooling method to use
@@ -231,7 +232,7 @@ class InstanceNet(BaseNet):
 
 class BagNetClassifier(BagNet, BaseClassifier):
     """
-    Classifier, applying BagNet method for classification. Defines loss.
+    Classifier, applying BagNet method for classification. Defines loss (by inheritance from classifier class).
     Examples
     ----------
     >>> from torch import randn, Tensor
@@ -270,7 +271,7 @@ class BagNetClassifier(BagNet, BaseClassifier):
 
 class BagNetRegressor(BagNet, BaseRegressor):
     """
-    Regressor, applying BagNet method for regression. Defines loss.
+    Regressor, applying BagNet method for regression. Defines loss (by inheritance from regressor class).
 
     Examples
     ----------
