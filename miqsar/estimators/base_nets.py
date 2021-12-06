@@ -210,7 +210,7 @@ class BaseNet(nn.Module):
         self.instance_dropout = instance_dropout
         x, m = self.add_padding(x)
         x_train, x_val, y_train, y_val, m_train, m_val = train_val_split(x, y, m) 
-        if y.ndim == 1: # convert 1d array into 2d ("column-vector")
+        if y_train.ndim == 1: # convert 1d array into 2d ("column-vector")
             y_train = y_train.reshape(-1, 1)
         if y_val.ndim == 1:  # convert 1d array into 2d ("column-vector")
             y_val = y_val.reshape(-1, 1)
