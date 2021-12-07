@@ -197,8 +197,7 @@ class BaseNet(nn.Module):
         weight_decay: float, default is apply no L2 penalty (0)
         Value by which to multiply L2 penalty for optimizer
         instance_dropout: float, default is 0.95
-        Randomly zeroes some of the instances with probability 1-instance_dropout (during training)
-        using samples from a Bernoulli distribution.
+        Tau parameter for AttentionNet (for other nets makes no effect) TODO: remove here, paste AttentionNet
         verbose: bool, default False
 
         Returns
