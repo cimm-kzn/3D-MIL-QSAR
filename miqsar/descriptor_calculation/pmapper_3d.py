@@ -1,203 +1,231 @@
-import os
 import argparse
-import collections
-import pkg_resources
-import numpy as np
-import pandas as pd
-from time import time
-from multiprocessing import Pool
-#from sklearn.externals import joblib
-import joblib
-from .pmapper import pharmacophore as P
-from .read_input import read_input
+import os
+import sys
+import string
+import random
+import pickle
+import itertools
+from multiprocessing import Pool, cpu_count
+from functools import partial
+from collections import defaultdict, Counter
+from rdkit.Chem import AllChem
 
-smarts = P.read_smarts_feature_file(pkg_resources.resource_filename(__name__, 'pmapper/smarts_features.txt'))
-
-
-def get_phf(mol):
-    p = P.Pharmacophore()
-    try:
-        p.load_from_smarts(mol, smarts)
-        phf_descript = pd.Series(p.get_descriptors(), dtype=np.uint8)
-    except IndexError:
-        # with open(log,'a') as out_log:
-        #     out_log.write(name)
-        # print('phf error')
-        return None
-
-    # phf_descript['mol_id'] = mol_id
-    # phf_descript['act'] = act
-    # phf_descript['mol_title'] = name
-
-    return phf_descript
-
-def get_phf_for_mol(mol_tup):
-    mol, mol_title, act, mol_id = mol_tup
-    phf_descr = get_phf(mol)
-
-    if phf_descr is None:
-        #print('phf error', mol_title)
-        return None
-
-    return phf_descr, mol_title, act, mol_id
+from pmapper.pharmacophore import Pharmacophore
+from pmapper.customize import load_smarts
 
 
-
-def get_mols(fname):
-    mols = None
-
-    if fname.endswith('.sdf'):
-        sdfmol_ids = read_input(fname)
-        mols = [[m, mol_title, m.GetProp('Act'), m.GetProp('Mol')] for m, mol_title in sdfmol_ids if m is not None]
-    if fname.endswith('.pkl'):
-        mols = read_input(fname)
-
-    return mols
+__smarts_patterns = load_smarts()
 
 
-def get_phf_clean(fname, ncpu, part=0.05):
-    p = Pool(ncpu, maxtasksperchild=50)
-
-    mols = get_mols(fname=fname)
-    if mols is None:
-        print('Wrong format or file')
-        return None
-
-    phf_dict = collections.Counter()
-    mol_count = 0
-
-    for res in p.imap_unordered(get_phf_for_mol, mols, chunksize=10):
-        if not res is None:
-            mol_count += 1
-            phf = res[0]
-            for phf_ind in phf.index:
-                phf_dict[phf_ind] += 1
-
-    p.close()
-    p.join()
-
-    phf_clean_ind = (np.array(list(phf_dict.values())) >= 2) & (np.array(list(phf_dict.values())) >= mol_count*part)
-    phf_clean = np.array(list(phf_dict.keys()))[phf_clean_ind]
-
-    #print('Preprocess columns:', len(phf_clean))
-    return phf_clean
-
-def add_uniq_col(fname, ncpu, col_clean):
-    p = Pool(ncpu, maxtasksperchild=50)
-    mols = get_mols(fname=fname)
-
-    if mols is None:
-        print('Wrong format or file')
-        return None
-
-    cols_add = set()
-
-    for res in p.imap_unordered(get_phf_for_mol, mols, chunksize=10):
-        phf_descr = res[0]
-        if all(phf_descr.reindex(col_clean, fill_value=0).astype(np.uint8).values == 0):
-            cols_add.update(phf_descr.index)
-
-    #print('Additional columns:', len(cols_add))
-
-    result_cols = np.array(list(set(col_clean) | cols_add))
-    # print(result_cols)
-
-    return result_cols
+def __read_pkl(fname):
+    with open(fname, 'rb') as f:
+        while True:
+            try:
+                yield pickle.load(f)
+            except EOFError:
+                break
 
 
-def main(fname, ncpu, path=None, col_clean=None, del_undef=True):
-# col_clean can use for test set
-    p = Pool(ncpu, maxtasksperchild=50)
-    start = time()
-
-    if path is None:
-        path = os.path.dirname(os.path.abspath(fname))
-
-    mols = get_mols(fname=fname)
-    if mols is None:
-        print('Wrong format or file')
-        return None
-
-    out_fname = os.path.join(path, 'PhFprPmapper_{f_name}_proc.pkl'.format(f_name=os.path.basename(fname).split('.')[0]))
-    phf_res = [[],[]]
-
-    #select common phf_descr - quantity of mols dataset >= 5%
-    if col_clean is None:
-        col_clean = get_phf_clean(fname=fname, ncpu=ncpu, part=0.05)
-        if len(col_clean) == 0:
-            print('Descriptors selection error. Clean col = 0. Threshold was lowered. To get descriptors if quantity > 2 ')
-            col_clean = get_phf_clean(fname=fname, ncpu=ncpu, part=0)
-        # col_clean = add_uniq_col(fname, ncpu, col_clean)
-
-    #print('clean', time()-start, 'sec')
-
-    for res in p.imap_unordered(get_phf_for_mol, mols, chunksize=10):
-        if not res is None:
-            phf_descr, mol_title, act, mol_id = res
-            phf_res[0].append([mol_title, act, mol_id])
-            phf_res[1].append(phf_descr.reindex(col_clean, fill_value=0).astype(np.uint8).values)
-
-    p.close()
-    p.join()
-
-    phf = pd.DataFrame(phf_res[1], columns=col_clean).merge(pd.DataFrame(phf_res[0], columns=['mol_title', 'act', 'mol_id']), left_index=True, right_index=True,
-                                                            copy=False)
-    # print(sys.getsizeof(phf))
-    #print('phf columns', len(col_clean))
-
-    if del_undef:
-        mol_ish = phf.loc(axis='columns')['mol_id'].unique()
-        mask_def_mol = phf.drop(axis='columns', labels=['mol_title', 'act', 'mol_id']).apply(axis='columns',
-                                                                                            func=lambda x: False if all(x == 0) else True)
-
-        mols_del = np.setdiff1d(mol_ish, phf.loc(axis='index')[mask_def_mol]['mol_id'].unique()).tolist()
-        #print('Mols for del', mols_del)
-
-        out_mol_clean_fname = os.path.join(path,
-                                 'PhFprPmapper_{f_name}_proc_molclean.pkl'.format(f_name=os.path.basename(fname).split('.')[0]))
-        log_mol_clean_fname = os.path.join(path,
-                                           'PhFprPmapper_{f_name}_proc_moldel.log'.format(
-                                               f_name=os.path.basename(fname).split('_')[0]))
-        with open(out_mol_clean_fname, 'wb') as out:
-            # joblib.dump(fp_data, out)
-            joblib.dump(phf.loc(axis='index')[mask_def_mol], out, compress='zlib')
-
-        if os.path.exists(log_mol_clean_fname):
-            with open(log_mol_clean_fname) as mol_log:
-                fdata = mol_log.read()
-                fdata = fdata.split('\t')
+def read_input(fname, input_format=None, id_field_name=None, sanitize=True, sdf_confs=False):
+    """
+    fname - is a file name, None if STDIN
+    input_format - is a format of input data, cannot be None for STDIN
+    id_field_name - name of the field containing molecule name, if None molecule title will be taken
+    sdf_confs - return consecutive molecules with the same name as a single Mol object with multiple conformers
+    """
+    if input_format is None:
+        tmp = os.path.basename(fname).split('.')
+        if tmp == 'gz':
+            input_format = '.'.join(tmp[-2:])
         else:
-            fdata=[]
+            input_format = tmp[-1]
+    input_format = input_format.lower()
+    if fname is None:  # handle STDIN
+        if input_format == 'sdf':
+            suppl = __read_stdin_sdf(sanitize=sanitize)
+        elif input_format == 'smi':
+            suppl = __read_stdin_smiles(sanitize=sanitize)
+        else:
+            raise Exception("Input STDIN format '%s' is not supported. It can be only sdf, smi." % input_format)
+    elif input_format in ("sdf", "sdf.gz"):
+        suppl = __read_sdf_confs(os.path.abspath(fname), input_format, id_field_name, sanitize, sdf_confs)
+    elif input_format in ('smi'):
+        suppl = __read_smiles(os.path.abspath(fname), sanitize)
+    elif input_format == 'pkl':
+        suppl = __read_pkl(os.path.abspath(fname))
+    else:
+        raise Exception("Input file format '%s' is not supported. It can be only sdf, sdf.gz, smi, pkl." % input_format)
+    for mol, mol_id, act, mol_name in suppl:
+        yield mol, mol_id
 
-        mol_del_add = [str(i) for i in mols_del if i not in fdata]
-        if mol_del_add:
-            with open(log_mol_clean_fname, 'a') as log:
-                log.write('\t'.join([*mol_del_add, '']))
 
-    with open(out_fname, 'wb') as out:
-        # joblib.dump(fp_data, out)
-        joblib.dump(phf, out, compress='zlib')
+def load_multi_conf_mol(mol, smarts_features=None, factory=None, bin_step=1, cached=False):
+    """
+    Convenience function which loads all conformers of a molecule into a list of pharmacophore objects.
+    :param mol: RDKit Mol
+    :param smarts_features: dictionary of SMARTS of features obtained with `load_smarts` function from `pmapper.util`
+                            module. Default: None.
+    :param factory: RDKit MolChemicalFeatureFactory loaded with `load_factory` function from `pmapper.util` module.
+                    Default: None.
+    :param bin_step: binning step
+    :param cached: whether or not to cache intermediate computation results. This substantially increases speed
+                   of repeated computation of a hash or fingerprints.
+    :return: list of pharmacophore objects
+    Note: if both arguments `smarts_features` and `factory` are None the default patterns will be used.
+    """
+    # factory or smarts_features should be None to select only one procedure
+    if smarts_features is not None and factory is not None:
+        raise ValueError("Only one options should be not None (smarts_features or factory)")
+    if smarts_features is None and factory is None:
+        smarts_features = __smarts_patterns
+    output = []
+    p = Pharmacophore(bin_step, cached)
+    if smarts_features is not None:
+        ids = p._get_features_atom_ids(mol, smarts_features)
+    elif factory is not None:
+        ids = p._get_features_atom_ids_factory(mol, factory)
+    else:
+        return output
 
-    #print(out_fname, time() - start, 'sec')
+    conf = mol.GetConformer()
+    p = Pharmacophore(bin_step, cached)
+    p.load_from_atom_ids(mol, ids, conf.GetId())
+    output.append(p)
 
-    return out_fname
+    return output
+
+
+class SvmSaver:
+
+    def __init__(self, file_name):
+        self.__fname = file_name
+        self.__varnames_fname = os.path.splitext(file_name)[0] + '.colnames'
+        self.__molnames_fname = os.path.splitext(file_name)[0] + '.rownames'
+        self.__varnames = dict()
+        if os.path.isfile(self.__fname):
+            os.remove(self.__fname)
+        if os.path.isfile(self.__molnames_fname):
+            os.remove(self.__molnames_fname)
+        if os.path.isfile(self.__varnames_fname):
+            os.remove(self.__varnames_fname)
+
+    def save_mol_descriptors(self, mol_name, mol_descr_dict):
+
+        new_varnames = list(mol_descr_dict.keys() - self.__varnames.keys())
+        for v in new_varnames:
+            self.__varnames[v] = len(self.__varnames)
+
+        values = {self.__varnames[k]: v for k, v in mol_descr_dict.items()}
+
+        if values:  # values can be empty if all descriptors are zero
+
+            with open(self.__molnames_fname, 'at') as f:
+                f.write(mol_name + '\n')
+
+            if new_varnames:
+                with open(self.__varnames_fname, 'at') as f:
+                    f.write('\n'.join(new_varnames) + '\n')
+
+            with open(self.__fname, 'at') as f:
+                values = sorted(values.items())
+                values_str = ('%i:%i' % (i, v) for i, v in values)
+                f.write(' '.join(values_str) + '\n')
+
+            return tuple(i for i, v in values)
+
+        return tuple()
+
+
+def process_mol(mol, mol_title, descr_num, smarts_features):
+    # descr_num - list of int
+    ps = load_multi_conf_mol(mol, smarts_features=smarts_features, bin_step=1)
+    res = []
+    for p in ps:
+        tmp = dict()
+        for n in descr_num:
+            tmp.update(p.get_descriptors(ncomb=n))
+        res.append(tmp)
+    ids = [c.GetId() for c in mol.GetConformers()]
+    ids, res = zip(*sorted(zip(ids, res)))  # reorder output by conf ids
+    return mol_title, res
+
+
+def process_mol_map(items, descr_num, smarts_features):
+    return process_mol(*items, descr_num=descr_num, smarts_features=smarts_features)
+
+
+def main(inp_fname=None, out_fname=None, smarts_features=None, factory=None,
+         descr_num=[4], remove=0.05, keep_temp=False, ncpu=1, verbose=False):
+    if remove < 0 or remove > 1:
+        raise ValueError('Value of the "remove" argument is out of range [0, 1]')
+
+    for v in descr_num:
+        if v < 1 or v > 4:
+            raise ValueError('The number of features in a single descriptor should be within 1-4 range.')
+
+    pool = Pool(max(min(ncpu, cpu_count()), 1))
+
+    tmp_fname = os.path.splitext(out_fname)[0] + '.' + ''.join(random.sample(string.ascii_lowercase, 6)) + '.txt'
+    svm = SvmSaver(tmp_fname)
+
+    stat = defaultdict(set)
+
+    # create temp file with all descriptors
+    for i, (mol_title, desc) in enumerate(
+            pool.imap(partial(process_mol_map, descr_num=descr_num, smarts_features=smarts_features),
+                      read_input(inp_fname), chunksize=1), 1):
+
+        # print(mol_title, len(desc))
+        for desc_dict in desc:
+            if desc_dict:
+                ids = svm.save_mol_descriptors(mol_title, desc_dict)
+                stat[mol_title].update(ids)
+        if verbose and i % 10 == 0:
+            sys.stderr.write(f'\r{i} molecule records were processed')
+    sys.stderr.write('\n')
+
+    if remove == 0:  # if no remove - rename temp files to output files
+        os.rename(tmp_fname, out_fname)
+        os.rename(os.path.splitext(tmp_fname)[0] + '.colnames', os.path.splitext(out_fname)[0] + '.colnames')
+        os.rename(os.path.splitext(tmp_fname)[0] + '.rownames', os.path.splitext(out_fname)[0] + '.rownames')
+
+    else:
+        # determine frequency of descriptors occurrence and select frequently occurred
+        c = Counter(itertools.chain.from_iterable(stat.values()))
+        threshold = len(stat) * remove
+        print(len(stat))
+        print(threshold)
+
+        desc_ids = {k for k, v in c.items() if v >= threshold}
+
+        # create output files with removed descriptors
+
+        replace_dict = dict()  # old_id, new_id
+        with open(os.path.splitext(out_fname)[0] + '.colnames', 'wt') as fout:
+            with open(os.path.splitext(tmp_fname)[0] + '.colnames') as fin:
+                for i, line in enumerate(fin):
+                    if i in desc_ids:
+                        replace_dict[i] = len(replace_dict)
+                        fout.write(line)
+
+        with open(os.path.splitext(out_fname)[0] + '.rownames', 'wt') as fmol, open(out_fname, 'wt') as ftxt:
+            with open(os.path.splitext(tmp_fname)[0] + '.rownames') as fmol_tmp, open(tmp_fname) as ftxt_tmp:
+                for line1, line2 in zip(fmol_tmp, ftxt_tmp):
+                    desc_str = []
+                    for item in line2.strip().split(' '):
+                        i, v = item.split(':')
+                        i = int(i)
+                        if i in replace_dict:
+                            desc_str.append(f'{replace_dict[i]}:{v}')
+                    if desc_str:
+                        fmol.write(line1)
+                        ftxt.write(' '.join(desc_str) + '\n')
+
+        if not keep_temp:
+            os.remove(tmp_fname)
+            os.remove(os.path.splitext(tmp_fname)[0] + '.colnames')
+            os.remove(os.path.splitext(tmp_fname)[0] + '.rownames')
 
 
 def calc_pmapper_descriptors(*args, **kwargs):
     return main(*args, **kwargs)
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-i', '--input', metavar='input.sdf', required=True,
-                        help='SDF [3D coordinates. Field: <Act>, <Mol>] or '
-                             'pkl [(RDKit.mol, mol_title: str, act:int/float, mol_title:str)].'
-                             'Input for calculation of the 3D Pharmacophore Fingerprints Pmapper')
-    parser.add_argument('-nc', '--ncpu', metavar='num', required=False, default=2, type=int,
-                        help='num of core for calculation')
-
-    args = parser.parse_args()
-    _in_fname = args.input
-    _nc = args.ncpu
-
-    main(fname=_in_fname, ncpu=_nc)
