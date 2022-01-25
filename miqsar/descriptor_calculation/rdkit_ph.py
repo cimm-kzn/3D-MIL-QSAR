@@ -9,7 +9,7 @@ from rdkit.Chem.Pharm2D.SigFactory import SigFactory
 from .read_input import read_input
 from .read_input import calc_max_tau
 
-fdef_fname = pkg_resources.resource_filename(__name__, 'pmapper_backlog/smarts_features.fdef')
+fdef_fname = pkg_resources.resource_filename(__name__, 'pmapper/smarts_features.fdef')
 featFactory = ChemicalFeatures.BuildFeatureFactory(fdef_fname)
 sigFactory = SigFactory(featFactory, minPointCount=2, maxPointCount=3, trianglePruneBins=False)
 sigFactory.SetBins([(0, 2), (2, 5), (5, 8)])
