@@ -59,42 +59,6 @@ def read_input(fname, input_format=None, id_field_name=None, sanitize=True, sdf_
         yield mol, mol_id
 
 
-def load_multi_conf_mol(mol, smarts_features=None, factory=None, bin_step=1, cached=False):
-    """
-    Convenience function which loads all conformers of a molecule into a list of pharmacophore objects.
-    :param mol: RDKit Mol
-    :param smarts_features: dictionary of SMARTS of features obtained with `load_smarts` function from `pmapper.util`
-                            module. Default: None.
-    :param factory: RDKit MolChemicalFeatureFactory loaded with `load_factory` function from `pmapper.util` module.
-                    Default: None.
-    :param bin_step: binning step
-    :param cached: whether or not to cache intermediate computation results. This substantially increases speed
-                   of repeated computation of a hash or fingerprints.
-    :return: list of pharmacophore objects
-    Note: if both arguments `smarts_features` and `factory` are None the default patterns will be used.
-    """
-    # factory or smarts_features should be None to select only one procedure
-    if smarts_features is not None and factory is not None:
-        raise ValueError("Only one options should be not None (smarts_features or factory)")
-    if smarts_features is None and factory is None:
-        smarts_features = __smarts_patterns
-    output = []
-    p = Pharmacophore(bin_step, cached)
-    if smarts_features is not None:
-        ids = p._get_features_atom_ids(mol, smarts_features)
-    elif factory is not None:
-        ids = p._get_features_atom_ids_factory(mol, factory)
-    else:
-        return output
-
-    conf = mol.GetConformer()
-    p = Pharmacophore(bin_step, cached)
-    p.load_from_atom_ids(mol, ids, conf.GetId())
-    output.append(p)
-
-    return output
-
-
 class SvmSaver:
 
     def __init__(self, file_name):
@@ -138,15 +102,20 @@ class SvmSaver:
 
 def process_mol(mol, mol_title, descr_num, smarts_features):
     # descr_num - list of int
-    ps = load_multi_conf_mol(mol, smarts_features=smarts_features, bin_step=1)
-    res = []
-    for p in ps:
-        tmp = dict()
-        for n in descr_num:
-            tmp.update(p.get_descriptors(ncomb=n))
-        res.append(tmp)
-    ids = [c.GetId() for c in mol.GetConformers()]
-    ids, res = zip(*sorted(zip(ids, res)))  # reorder output by conf ids
+    """
+    Returns
+    -------
+    mol_title:str
+    res:dict
+    Keys: signatures sep by "|"; values - counts ;  size of dict may vary
+
+    """
+    ph = Pharmacophore(bin_step=1, cached=False)
+    ph.load_from_smarts(mol, smarts_features=smarts_features)
+
+    res = dict()
+    for n in descr_num:
+        res.update(ph.get_descriptors(ncomb=n))
     return mol_title, res
 
 
@@ -175,11 +144,11 @@ def main(inp_fname=None, out_fname=None, smarts_features=None, factory=None,
             pool.imap(partial(process_mol_map, descr_num=descr_num, smarts_features=smarts_features),
                       read_input(inp_fname), chunksize=1), 1):
 
-        # print(mol_title, len(desc))
-        for desc_dict in desc:
-            if desc_dict:
-                ids = svm.save_mol_descriptors(mol_title, desc_dict)
-                stat[mol_title].update(ids)
+        # print(mol_title)
+
+        if desc:
+            ids = svm.save_mol_descriptors(mol_title, desc) # ids= signatures
+            stat[mol_title].update(ids)
         if verbose and i % 10 == 0:
             sys.stderr.write(f'\r{i} molecule records were processed')
     sys.stderr.write('\n')
@@ -190,8 +159,8 @@ def main(inp_fname=None, out_fname=None, smarts_features=None, factory=None,
         os.rename(os.path.splitext(tmp_fname)[0] + '.rownames', os.path.splitext(out_fname)[0] + '.rownames')
 
     else:
-        # determine frequency of descriptors occurrence and select frequently occurred
-        c = Counter(itertools.chain.from_iterable(stat.values()))
+        # determine frequency of descriptors occurrence and select frequently occurring
+        c = Counter(itertools.chain(stat.values()))
         threshold = len(stat) * remove
         print(len(stat))
         print(threshold)
