@@ -111,7 +111,7 @@ def process_mol(mol, mol_title, descr_num, smarts_features):
 
     """
     ph = Pharmacophore(bin_step=1, cached=False)
-    ph.load_from_smarts(mol, smarts_features=smarts_features)
+    ph.load_from_smarts(mol, smarts=smarts_features)
 
     res = dict()
     for n in descr_num:
@@ -149,6 +149,7 @@ def main(inp_fname=None, out_fname=None, smarts_features=None, factory=None,
         if desc:
             ids = svm.save_mol_descriptors(mol_title, desc) # ids= signatures
             stat[mol_title].update(ids)
+            # print(stat)
         if verbose and i % 10 == 0:
             sys.stderr.write(f'\r{i} molecule records were processed')
     sys.stderr.write('\n')
@@ -160,7 +161,8 @@ def main(inp_fname=None, out_fname=None, smarts_features=None, factory=None,
 
     else:
         # determine frequency of descriptors occurrence and select frequently occurring
-        c = Counter(itertools.chain(stat.values()))
+
+        c = Counter(itertools.chain.from_iterable(stat.values()))
         threshold = len(stat) * remove
         print(len(stat))
         print(threshold)
