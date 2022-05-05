@@ -1,7 +1,11 @@
+from rdkit import RDLogger
+RDLogger.DisableLog('rdApp.*')
+
 import os
-from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 import pickle
 import numpy as np
+from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+
 from .psearch_master import gen_stereo_rdkit, gen_conf_rdkit, read_input
 
 
@@ -24,7 +28,7 @@ def get_n_confs(conf_log, nconf_list, out_partfname):
     # confs for all mols
     all_confs_list = list(read_input.read_input(conf_log))
     if not all_confs_list:
-        #print('Error. Conformer log file is empty', conf_log)
+        print('Error. Conformer log file is empty', conf_log)
         return None
 
     out_fnames = []
@@ -35,7 +39,7 @@ def get_n_confs(conf_log, nconf_list, out_partfname):
     return out_fnames
 
 
-def gen_confs(fname, nconfs_list, stereo=True, path=None, ncpu=4):
+def gen_confs(fname, nconfs_list, stereo=True, energy=50, path=None, ncpu=4):
     '''
 
     :param fname: smi file. Mol_name, smiles, act
@@ -76,7 +80,7 @@ def gen_confs(fname, nconfs_list, stereo=True, path=None, ncpu=4):
                                out_fname=conf_log,
                                id_field_name=None,
                                nconf=max_conf,
-                               energy=100,
+                               energy=energy,
                                rms=.5,
                                ncpu=ncpu,
                                seed=42,

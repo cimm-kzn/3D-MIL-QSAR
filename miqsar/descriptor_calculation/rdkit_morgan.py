@@ -16,7 +16,7 @@ def rdkit_numpy_convert(fp):
     return np.asarray(output)
 
 
-def main(fname, tautomers_smi=False, path=None):
+def main(fname, tautomers_smi=False, ncpu=1, path=None):
     if path is None:
         path = os.path.dirname(fname)
     if tautomers_smi:

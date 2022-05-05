@@ -15,12 +15,46 @@ from itertools import combinations
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from multiprocessing import Pool, cpu_count
+from openbabel import pybel
 
 # from .read_input import read_input
 if __name__ == '__main__':
     from read_input import read_input
 else:
     from .read_input import read_input
+
+ob = pybel.ob
+
+def gen_confs_obabel(rdkit_mol, nconf=50):
+    mol = pybel.readstring('mol', Chem.MolToMolBlock(rdkit_mol)).OBMol  # convert mol from RDKit to OB
+    mol.AddHydrogens()
+
+    pff = ob.OBForceField_FindType('mmff94')
+    if not pff.Setup(mol):  # if OB FF setup fails use RDKit conformer generation (slower)
+        print('err')
+
+    pff.DiverseConfGen(0.5, 1000, 50, False)  # rmsd, nconf_tries, energy, verbose
+    pff.GetConformers(mol)
+
+    obconversion = ob.OBConversion()
+    obconversion.SetOutFormat('mol')
+
+    output_strings = []
+    for conf_num in range(max(0, mol.NumConformers() - nconf),
+                          mol.NumConformers()):
+        mol.SetConformer(conf_num)
+        output_strings.append(obconversion.WriteString(mol))
+
+    pff.ConjugateGradients(100, 1.0e-3)
+
+    rdkit_confs = []
+    for i in output_strings:
+        mol = Chem.MolFromMolBlock(i, removeHs=False)
+        #AllChem.MMFFOptimizeMolecule(mol, confId=0)
+        #AllChem.UFFOptimizeMolecule(mol, confId=0)
+        rdkit_confs.append(mol)
+
+    return rdkit_confs
 
 
 def prep_input(fname, id_field_name, nconf, energy, rms, seed):
@@ -37,10 +71,10 @@ def sorted_confids(mol):
     sorted_list = []
 
     for conf in mol.GetConformers():
-        ff = AllChem.MMFFGetMoleculeForceField(mol, AllChem.MMFFGetMoleculeProperties(mol), confId=conf.GetId())
+        #ff = AllChem.MMFFGetMoleculeForceField(mol, AllChem.MMFFGetMoleculeProperties(mol), confId=conf.GetId())
+        ff = AllChem.UFFGetMoleculeForceField(mol, confId=conf.GetId())
         if ff is None:
-            pass
-            #print(Chem.MolToSmiles(mol))
+            print(Chem.MolToSmiles(mol))
         else:
             sorted_list.append((conf.GetId(), ff.CalcEnergy()))
 
@@ -53,9 +87,11 @@ def sorted_confids(mol):
 def remove_confs(mol, energy, rms):
     e = []
     for conf in mol.GetConformers():
-        ff = AllChem.MMFFGetMoleculeForceField(mol, AllChem.MMFFGetMoleculeProperties(mol), confId=conf.GetId())
+        #ff = AllChem.MMFFGetMoleculeForceField(mol, AllChem.MMFFGetMoleculeProperties(mol), confId=conf.GetId())
+        ff = AllChem.UFFGetMoleculeForceField(mol, confId=conf.GetId())
+
         if ff is None:
-            #print(Chem.MolToSmiles(mol))
+            print(Chem.MolToSmiles(mol))
             return
         e.append((conf.GetId(), ff.CalcEnergy()))
     e = sorted(e, key=lambda x: x[1])
@@ -90,8 +126,18 @@ def gen_confs(mol, mol_name, nconf, energy, rms, seed, act, mol_id):
     mol = Chem.AddHs(mol)
     cids = AllChem.EmbedMultipleConfs(mol, numConfs=nconf, maxAttempts=700, randomSeed=seed)
 
+    if len(cids) == 0:
+        confs = gen_confs_obabel(mol, nconf=nconf)
+        for conf in confs:
+            mol.AddConformer(conf.GetConformer())
+        cids = list(range(0, len(confs)))
+
     for cid in cids:
-        AllChem.MMFFOptimizeMolecule(mol, confId=cid)
+        try:
+            #AllChem.MMFFOptimizeMolecule(mol, confId=cid)
+            AllChem.UFFOptimizeMolecule(mol, confId=cid)
+        except:
+            continue
     remove_confs(mol, energy, rms)
     return mol_name, mol, act, mol_id
 
@@ -131,7 +177,7 @@ def main_params(in_fname, out_fname, id_field_name, nconf, energy, rms, ncpu, se
 
             if not ids_sorted:
                 pass
-                #print(Chem.MolToSmiles(mol), mol_name)
+                print(Chem.MolToSmiles(mol), mol_name)
 
             if output_file_type == 'pkl':
                 mol_conf_list = []
