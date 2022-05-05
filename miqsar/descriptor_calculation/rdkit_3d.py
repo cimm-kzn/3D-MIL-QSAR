@@ -97,7 +97,7 @@ def main(fname, ncpu, path=None, del_log=True):
     return out_fname
 
     
-def calc_3d_descriptors(*args, **kwargs):
+def calc_rdkit_descriptors(*args, **kwargs):
     return main(*args, **kwargs)
 
 

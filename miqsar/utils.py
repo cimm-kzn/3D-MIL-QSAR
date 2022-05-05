@@ -1,12 +1,13 @@
+import os
 import pickle
-import joblib
 import numpy as np
 import pandas as pd
-from miqsar.conformer_generation.gen_conformers import gen_confs
-from miqsar.descriptor_calculation.rdkit_3d import calc_3d_descriptors
-from miqsar.descriptor_calculation.pmapper_3d import calc_pmapper_descriptors
-
-from sklearn.preprocessing import MinMaxScaler
+from collections import defaultdict
+from itertools import groupby
+from pmapper.customize import load_smarts, load_factory
+from .conformer_generation.gen_conformers import gen_confs
+from .descriptor_calculation.pmapper_3d import calc_pmapper_descriptors
+from .descriptor_calculation.rdkit_morgan import calc_morgan_descriptors
 
 
 def read_pkl(fname):
@@ -17,58 +18,29 @@ def read_pkl(fname):
             except EOFError:
                 break
 
-                
-def calc_3d_pmapper(dataset_file, nconfs=1, stereo=False, path='.', ncpu=10):
+
+def calc_3d_pmapper(input_fname=None, nconfs_list=[1, 50], energy=10, descr_num=[4], ncpu=5, path='.'):
     
-    conf_files = gen_confs(dataset_file, nconfs_list=[nconfs], stereo=stereo, path=path, ncpu=ncpu)
+    conf_files = gen_confs(input_fname, ncpu=ncpu, nconfs_list=nconfs_list, stereo=False, energy=energy, path=path)
 
-    for conf in conf_files:
-        dsc_file = calc_pmapper_descriptors(conf, path=path, ncpu=ncpu, col_clean=None, del_undef=True)
+    smarts_features = load_smarts('./miqsar/smarts_features.txt')
+    factory = load_factory('./miqsar/smarts_features.fdef')
+    
+    for conf_file in conf_files:
+    
+        out_fname = os.path.join(path, 'PhFprPmapper_{}.txt'.format(os.path.basename(conf_file).split('.')[0]))
 
-        with open(dsc_file, 'rb') as inp:
-            data = joblib.load(inp)
-
-        if 'mol_title' not in data.columns:
-            data = data.reset_index()
-        data['mol_id'] = data['mol_id'].str.lower()
-        fname = dsc_file.split
-        dsc_file = dsc_file.replace('_proc.pkl', '.csv')
-        data.to_csv(dsc_file, index=False)
+        calc_pmapper_descriptors(inp_fname=conf_file, out_fname=out_fname, 
+                                 smarts_features=smarts_features, factory=factory,
+                                 descr_num=descr_num, remove=0.05, keep_temp=False, ncpu=ncpu, verbose=False)
         
-    bags, labels, idx = read_data(dsc_file)
+        #
+        data = pd.read_csv(input_fname, header=None, index_col=1)
+        rownames = pd.read_csv(out_fname.replace('.txt', '.rownames'), header=None)
+        idx = [i.split('_')[0] for i in rownames[0]]
+        labels = [ f'{i}:{data.loc[i, 2]}\n' for i in idx]
 
-    return bags, labels, idx
+        with open(out_fname.replace('.txt', '.rownames'), 'w') as f:
+            f.write(''.join(labels))
 
-
-def read_data(fname):
-    data = pd.read_csv(fname, index_col='mol_id')
-    data.index = [i.upper() for i in data.index]
-    data = data.sort_index()
-
-    idx = []
-    bags = []
-    labels = []
-    for i in data.index.unique():
-        bag = data.loc[i:i].drop(['mol_title', 'act'], axis=1).values
-        label = float(data.loc[i:i]['act'].unique()[0])
-
-        bags.append(bag)
-        labels.append(label)
-        idx.append(i)
-
-    bags = np.array(bags)
-    labels = np.array(labels)
-
-    return bags, labels, idx
-
-
-def scale_descriptors(X_train, X_test):
-    scaler = MinMaxScaler()
-    scaler.fit(np.vstack(X_train))
-    X_train_scaled = X_train.copy()
-    X_test_scaled = X_test.copy()
-    for i, bag in enumerate(X_train):
-        X_train_scaled[i] = scaler.transform(bag)
-    for i, bag in enumerate(X_test):
-        X_test_scaled[i] = scaler.transform(bag)
-    return X_train_scaled, X_test_scaled
+    return out_fname

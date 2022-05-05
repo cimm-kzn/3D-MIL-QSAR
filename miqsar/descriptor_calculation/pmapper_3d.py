@@ -13,8 +13,7 @@ from rdkit.Chem import AllChem
 from pmapper.pharmacophore import Pharmacophore
 from pmapper.customize import load_smarts
 
-
-__smarts_patterns = load_smarts()
+#__smarts_patterns = load_smarts()
 
 
 def __read_pkl(fname):
@@ -24,7 +23,7 @@ def __read_pkl(fname):
                 yield pickle.load(f)
             except EOFError:
                 break
-
+                
 
 def read_input(fname, input_format=None, id_field_name=None, sanitize=True, sdf_confs=False):
     """
@@ -40,7 +39,7 @@ def read_input(fname, input_format=None, id_field_name=None, sanitize=True, sdf_
         else:
             input_format = tmp[-1]
     input_format = input_format.lower()
-    if fname is None:  # handle STDIN
+    if fname is None:    # handle STDIN
         if input_format == 'sdf':
             suppl = __read_stdin_sdf(sanitize=sanitize)
         elif input_format == 'smi':
@@ -57,7 +56,6 @@ def read_input(fname, input_format=None, id_field_name=None, sanitize=True, sdf_
         raise Exception("Input file format '%s' is not supported. It can be only sdf, sdf.gz, smi, pkl." % input_format)
     for mol, mol_id, act, mol_name in suppl:
         yield mol, mol_id
-
 
 class SvmSaver:
 
@@ -123,8 +121,9 @@ def process_mol_map(items, descr_num, smarts_features):
     return process_mol(*items, descr_num=descr_num, smarts_features=smarts_features)
 
 
-def main(inp_fname=None, out_fname=None, smarts_features=None, factory=None,
+def main(inp_fname=None, out_fname=None, smarts_features=None, factory=None, 
          descr_num=[4], remove=0.05, keep_temp=False, ncpu=1, verbose=False):
+
     if remove < 0 or remove > 1:
         raise ValueError('Value of the "remove" argument is out of range [0, 1]')
 
@@ -138,14 +137,11 @@ def main(inp_fname=None, out_fname=None, smarts_features=None, factory=None,
     svm = SvmSaver(tmp_fname)
 
     stat = defaultdict(set)
-
+    
     # create temp file with all descriptors
     for i, (mol_title, desc) in enumerate(
             pool.imap(partial(process_mol_map, descr_num=descr_num, smarts_features=smarts_features),
                       read_input(inp_fname), chunksize=1), 1):
-
-        # print(mol_title)
-
         if desc:
             ids = svm.save_mol_descriptors(mol_title, desc) # ids= signatures
             stat[mol_title].update(ids)
@@ -164,9 +160,7 @@ def main(inp_fname=None, out_fname=None, smarts_features=None, factory=None,
 
         c = Counter(itertools.chain.from_iterable(stat.values()))
         threshold = len(stat) * remove
-        print(len(stat))
-        print(threshold)
-
+        
         desc_ids = {k for k, v in c.items() if v >= threshold}
 
         # create output files with removed descriptors
@@ -196,7 +190,6 @@ def main(inp_fname=None, out_fname=None, smarts_features=None, factory=None,
             os.remove(tmp_fname)
             os.remove(os.path.splitext(tmp_fname)[0] + '.colnames')
             os.remove(os.path.splitext(tmp_fname)[0] + '.rownames')
-
-
+            
 def calc_pmapper_descriptors(*args, **kwargs):
     return main(*args, **kwargs)
