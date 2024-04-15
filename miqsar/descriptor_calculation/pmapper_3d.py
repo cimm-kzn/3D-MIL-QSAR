@@ -206,7 +206,7 @@ def process_mol_atom_excl_map(items, descr_num, smarts_features):
     return process_mol_atom_excl(*items, descr_num=descr_num, smarts_features=smarts_features)
 
 
-def main(inp_fname=None, out_fname=None, atom_exclusion=False, smarts_features=None,
+def main(inp_fname=None, out_fname=None, atom_exclusion=False, factory=None, smarts_features=None,
          descr_num=[4], remove=0.05, colnames=None, keep_temp=False, ncpu=1, verbose=False):
     """
     WARNING:order of saving conformers/atom-depleted versions will be  same as order of input;
@@ -257,11 +257,11 @@ def main(inp_fname=None, out_fname=None, atom_exclusion=False, smarts_features=N
                 pool.imap(partial(process_mol_map, descr_num=descr_num, smarts_features=smarts_features),
                           read_input(inp_fname), chunksize=chunksize), 1):
             if desc:
-                tmp_titles.update(mol_title)
+                tmp_titles.add(mol_title)
                 ids = svm.save_mol_descriptors(mol_title, desc, cols)  # ids= signatures
                 if len(tmp_titles) > length:  # new mol_title appeared
                     c.update(ids_per_mol_ttl)  # update counter with set for previous mol, as new one appeared
-                    ids_per_mol_ttl = set()
+                    ids_per_mol_ttl = set(ids)
                 else:
                     ids_per_mol_ttl.update(ids)  # continue adding signatures of same mol_ttl
                 length = len(tmp_titles)
