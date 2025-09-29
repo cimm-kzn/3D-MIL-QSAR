@@ -1,7 +1,6 @@
 Conformer Multi-Instance Machine Learning
 ==========================================================
-This repository containes the Python source code from paper:
-- "QSAR modeling based on conformation ensembles using a multi-instance learning approach"](https://pubs.acs.org/doi/10.1021/acs.jcim.1c00692)
+This repository contains the Python source code from the `paper <https://pubs.acs.org/doi/10.1021/acs.jcim.1c00692>`_.
 
 Overview
 ------------
