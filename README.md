@@ -16,8 +16,8 @@ only for a bag (a molecule), but not for individual instances (conformations).
 ## Supplementary packages
 The modelling pipeline is based on two supplementary packages: 
 
-    - `QSARmil <https://github.com/KagakuAI/QSARmil>`_ – Molecular multi-instance machine learning
-    - `milearn <https://github.com/KagakuAI/milearn>`_ - Multi-instance machine learning in Python
+- `QSARmil <https://github.com/KagakuAI/QSARmil>`_ – Molecular multi-instance machine learning
+- `milearn <https://github.com/KagakuAI/milearn>`_ - Multi-instance machine learning in Pythonn
 
 Refer to these packages for more examples and application cases.
 
